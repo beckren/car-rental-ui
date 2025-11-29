@@ -122,40 +122,10 @@
                   >
                     <mat-form-field appearance="outline" class="readonly-field">
                       <mat-label>Additional Fee</mat-label>
-                      <mat-select formControlName="feeType">
-                        <mat-option value="Additional Drivers"
-                          >Additional Drivers (€50)</mat-option
-                        >
-                        <mat-option value="Child Seat"
-                          >Child Seat (€30)</mat-option
-                        >
-                        <mat-option value="Cross Borders"
-                          >Cross Borders (€40)</mat-option
-                        >
-                        <mat-option value="Booster Seat"
-                          >Booster Seat (€25)</mat-option
-                        >
-                        <mat-option value="Insurance Lv.1"
-                          >Insurance Lv.1 (€60)</mat-option
-                        >
-                        <mat-option value="Insurance Lv.2"
-                          >Insurance Lv.2 (€100)</mat-option
-                        >
-                        <mat-option value="KMFee">Additional KM fee</mat-option>
-
-                        <mat-option value="AirportChange"
-                          >Airport Change Fee (€20)</mat-option
-                        >
-                        <mat-option value="youngDriver"
-                          >Young Driver</mat-option
-                        >
-                        <mat-option value="upgrade">Upsell/Upgrade</mat-option>
-
-                        <mat-option value="latePickup">Late Pickup</mat-option>
-
-                        <mat-option value="winterTire">Winter Tire</mat-option>
-
-                        <mat-option value="noshowFee">No Show Fee</mat-option>
+                      <mat-select formControlName="feeType" (selectionChange)="onFeeTypeChange($event.value, i)">
+                        <mat-option *ngFor="let fee of fees" [value]="fee.feeName">
+                          {{ formatFeeName(fee.feeName) }}
+                        </mat-option>
                       </mat-select>
                     </mat-form-field>
                     <mat-form-field
@@ -189,11 +159,11 @@
 
                     <mat-form-field appearance="outline" class="readonly-field">
                       <mat-label>Max Price (€)</mat-label>
-                      <input
-                        matInput
-                        type="number"
-                        formControlName="maxPrice"
-                      />
+                      <mat-select formControlName="maxAmount">
+                        <mat-option *ngFor="let fee of fees" [value]="fee.maxAmount">
+                          {{ fee.maxAmount }}
+                        </mat-option>
+                      </mat-select>
                     </mat-form-field>
 
                     <button
@@ -476,15 +446,16 @@
               <div class="upload-container">
                 <app-upload-options *ngIf="isMobile"></app-upload-options>
                 <div *ngIf="!isMobile">
-                  <button mat-icon-button (click)="fileInput.click()">
+                  <button mat-icon-button (click)="fileInput_customer_id.click()">
                     <mat-icon>cloud_upload</mat-icon>
                   </button>
                   <input
                     hidden
                     type="file"
-                    #fileInput
-                    (change)="onFileSelected($event)"
+                    #fileInput_customer_id
+                    (change)="onFileSelected($event, 'customer-id')"
                   />
+                  <span *ngIf="fileMap['customer-id']" class="file-name" style="color: #1976d2; font-weight: 500;">{{ fileMap['customer-id'].name }}</span>
                 </div>
               </div>
             </div>
@@ -538,15 +509,16 @@
               <div class="upload-container">
                 <app-upload-options *ngIf="isMobile"></app-upload-options>
                 <div *ngIf="!isMobile">
-                  <button mat-icon-button (click)="fileInput.click()">
+                  <button mat-icon-button (click)="fileInput_driver_license.click()">
                     <mat-icon>cloud_upload</mat-icon>
                   </button>
                   <input
                     hidden
                     type="file"
-                    #fileInput
-                    (change)="onFileSelected($event)"
+                    #fileInput_driver_license
+                    (change)="onFileSelected($event, 'driver-license')"
                   />
+                  <span *ngIf="fileMap['driver-license']" class="file-name" style="color: #1976d2; font-weight: 500;">{{ fileMap['driver-license'].name }}</span>
                 </div>
               </div>
             </div>
@@ -736,8 +708,9 @@
                       hidden
                       type="file"
                       #fileInput
-                      (change)="onFileSelected($event)"
+                      (change)="onFileSelected($event, 'additional-driver-' + (i + 1) + '-id')"
                     />
+                    <span *ngIf="fileMap['additional-driver-' + (i + 1) + '-id']" class="file-name" style="color: #1976d2; font-weight: 500;">{{ fileMap['additional-driver-' + (i + 1) + '-id'].name }}</span>
                   </div>
                 </div>
               </div>
@@ -779,8 +752,9 @@
                       hidden
                       type="file"
                       #fileInput
-                      (change)="onFileSelected($event)"
+                      (change)="onFileSelected($event, 'additional-driver-' + (i + 1) + '-license')"
                     />
+                    <span *ngIf="fileMap['additional-driver-' + (i + 1) + '-license']" class="file-name" style="color: #1976d2; font-weight: 500;">{{ fileMap['additional-driver-' + (i + 1) + '-license'].name }}</span>
                   </div>
                 </div>
               </div>
@@ -808,7 +782,11 @@
             <div class="grid-fields">
               <mat-form-field appearance="outline" class="readonly-field">
                 <mat-label>MVA</mat-label>
-                <input matInput formControlName="mva" placeholder="Enter MVA" />
+                <mat-select formControlName="mva">
+                  <mat-option *ngFor="let vehicle of vehicles" [value]="vehicle.mva">
+                    {{ vehicle.mva }} - {{ vehicle.licensePlate }} - {{ vehicle.carModel }}
+                  </mat-option>
+                </mat-select>
               </mat-form-field>
             </div>
 
@@ -834,8 +812,8 @@
               </mat-form-field>
 
               <mat-form-field class="gray-bg" appearance="fill">
-                <mat-label>Millage</mat-label>
-                <input matInput formControlName="millage" />
+                <mat-label>Mileage</mat-label>
+                <input matInput formControlName="mileage" />
               </mat-form-field>
 
               <mat-form-field class="gray-bg" appearance="fill">
@@ -974,14 +952,13 @@
       <mat-card-title>Live Summary</mat-card-title>
     </mat-card-header>
     <mat-card-content>
-      <p><strong>Rental ID:</strong> 0000001</p>
-      <p><strong>First Name:</strong> John</p>
-      <p><strong>Last Name:</strong> Doe</p>
-      <p><strong>Check Out:</strong> 01/04/2024</p>
-      <p><strong>Check In:</strong> 10/04/2024</p>
-      <p><strong>Net Amount:</strong> €300</p>
-      <p><strong>Extras:</strong> €50</p>
-      <p><strong>Gross Amount:</strong> €350</p>
+      <p><strong>First Name:</strong> {{ customerFormGroup.get('firstName')?.value }}</p>
+      <p><strong>Last Name:</strong> {{ customerFormGroup.get('lastName')?.value }}</p>
+      <p><strong>Check Out:</strong> {{ CheckOutDateControl.value | date:'dd/MM/yyyy' }}</p>
+      <p><strong>Check In:</strong> {{ CheckInDateControl.value | date:'dd/MM/yyyy' }}</p>
+      <p><strong>Extras:</strong> €{{ getExtrasTotal() }}</p>
+      <p><strong>Net Amount:</strong> €{{ pricingFormGroup.get('netAmount')?.value }}</p>
+      <p><strong>Gross Amount:</strong> €{{ pricingFormGroup.get('grossAmount')?.value }}</p>
     </mat-card-content>
   </mat-card>
 </div>

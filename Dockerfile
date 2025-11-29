@@ -20,7 +20,7 @@ RUN npm run build --prod
 FROM nginx:alpine
 
 # Copy the built app to Nginx's html directory
-COPY --from=build /app/dist/frontend /usr/share/nginx/html
+COPY --from=build /app/dist/vibes-mobility-ui /usr/share/nginx/html
 
 # Expose port 80
 EXPOSE 80

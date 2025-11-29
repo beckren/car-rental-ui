@@ -22,7 +22,7 @@ import { Router } from '@angular/router';
 
 })
 export class AppComponent {
-  title = 'frontend';
+  title = 'vibes-mobility-ui';
   constructor(private router: Router) { }
 
 }

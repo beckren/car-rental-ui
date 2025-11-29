@@ -25,9 +25,13 @@ import * as _moment from 'moment';
 import { NgxMaterialTimepickerModule } from 'ngx-material-timepicker';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatSnackBarModule } from '@angular/material/snack-bar';
+import { combineLatest } from 'rxjs';
+import { filter } from 'rxjs/operators';
 
 import { UploadOptionsComponent } from '../upload-options.component';
 import { PriceService, PriceRequest, AdditionalFee, Discount } from '../_common/_service/price.service';
+import { FeeService, Fee } from '../_common/_service/fee.service';
+import { VehicleService, Vehicle } from '../_common/_service/vehicle.service';
 
 const moment = _rollupMoment || _moment;
 const FULL_DATE_FORMATS = {
@@ -84,7 +88,7 @@ const FULL_DATE_FORMATS = {
 })
 export class CheckOutComponent implements OnInit {
   driverStepVisible = false;
-  carGroup!:FormGroup;
+  carGroup!: FormGroup;
   isMobile = false;
   pricingFormGroup!: FormGroup;
   driverFormGroup!: FormGroup;
@@ -104,16 +108,19 @@ export class CheckOutComponent implements OnInit {
   showAdditionalFees = false;
   showDiscount = false;
 
-  summary = {
-    rentalId: '0000001',
-    firstName: 'HHHHH',
-    lastName: 'HHHHH',
-    netAmount: 0,
-    extras: 0,
-    grossAmount: 0,
-  };
+  fees: Fee[] = [];
+  vehicles: Vehicle[] = [];
 
-  constructor(private fb: FormBuilder, private priceService: PriceService, private snackBar: MatSnackBar) { }
+  // Holds all uploaded files by key (e.g. 'customer-id', 'driver-license', 'additional-driver-1', etc.)
+  fileMap: { [key: string]: File } = {};
+
+  constructor(
+    private fb: FormBuilder,
+    private priceService: PriceService,
+    private snackBar: MatSnackBar,
+    private feeService: FeeService,
+    private vehicleService: VehicleService // <-- inject VehicleService
+  ) { }
 
   ngOnInit() {
     this.pricingFormGroup = this.fb.group({
@@ -194,14 +201,14 @@ export class CheckOutComponent implements OnInit {
 
     this.carInformationFormGroup = this.fb.group({
       mva: [''],
-      carGroup: [{ value: 'IDMR', disabled: true }],
-      licensePlate: [{ value: 'AB123CD', disabled: true }],
-      fuel: [{ value: 'Diesel', disabled: true }],
-      carModel: [{ value: 'Toyota Corolla', disabled: true }],
-      millage: [{ value: '25000 km', disabled: true }],
-      color: [{ value: 'Blue', disabled: true }],
-      status: [{ value: 'Available', disabled: true }],
-      transmission: [{ value: 'Manual', disabled: true }],
+      carGroup: [{ value: '', disabled: true }],
+      licensePlate: [{ value: '', disabled: true }],
+      fuel: [{ value: '', disabled: true }],
+      carModel: [{ value: '', disabled: true }],
+      mileage: [{ value: '', disabled: true }],
+      color: [{ value: '', disabled: true }],
+      status: [{ value: '', disabled: true }],
+      transmission: [{ value: '', disabled: true }],
     });
 
     this.paymentFormGroup = this.fb.group({
@@ -235,8 +242,87 @@ export class CheckOutComponent implements OnInit {
     this.detectDevice();
     window.addEventListener('resize', this.detectDevice.bind(this));
 
+    // Remove previous valueChanges subscriptions and helper method
+    // Use combineLatest for all four controls
+    combineLatest([
+      this.CheckOutDateControl.valueChanges,
+      this.CheckOutTimeControl.valueChanges,
+      this.CheckInDateControl.valueChanges,
+      this.CheckInTimeControl.valueChanges
+    ])
+      .pipe(
+        filter(([coDate, coTime, ciDate, ciTime]) => !!coDate && !!coTime && !!ciDate && !!ciTime)
+      )
+      .subscribe(([coDate, coTime, ciDate, ciTime]) => {
+        // Build ISO datetime strings
+        const checkoutDateTime = new Date(coDate);
+        const [coHour, coMin] = coTime.split(':');
+        checkoutDateTime.setHours(+coHour);
+        checkoutDateTime.setMinutes(+coMin);
+        const checkinDateTime = new Date(ciDate);
+        const [ciHour, ciMin] = ciTime.split(':');
+        checkinDateTime.setHours(+ciHour);
+        checkinDateTime.setMinutes(+ciMin);
+        this.feeService.getAllAdditionalFees(
+          checkoutDateTime.toISOString(),
+          checkinDateTime.toISOString()
+        ).subscribe(fees => {
+          this.fees = fees;
+        });
+      });
 
+    this.pricingFormGroup.get('carGroup')?.valueChanges.subscribe(value => {
+      if (value) {
+        this.carInformationFormGroup.get('carGroup')?.setValue(value, { emitEvent: false });
+      }
+    });
+
+    // Fetch vehicles for initial car group (if any)
+    const initialCarGroup = this.pricingFormGroup.get('carGroup')?.value;
+    if (initialCarGroup) {
+      this.fetchVehiclesByGroup(initialCarGroup);
+    }
+
+    // Subscribe to carGroup changes to fetch vehicles
+    this.pricingFormGroup.get('carGroup')?.valueChanges.subscribe(value => {
+      if (value) {
+        this.fetchVehiclesByGroup(value);
+        this.carInformationFormGroup.get('carGroup')?.setValue(value, { emitEvent: false });
+      }
+    });
+
+    // Subscribe to mva changes to fill car details
+    this.carInformationFormGroup.get('mva')?.valueChanges.subscribe(mva => {
+      const selectedVehicle = this.vehicles.find(v => v.mva === mva);
+      if (selectedVehicle) {
+        this.carInformationFormGroup.patchValue({
+          licensePlate: selectedVehicle.licensePlate,
+          fuel: selectedVehicle.fuel,
+          carModel: selectedVehicle.carModel,
+          mileage: selectedVehicle.mileage,
+          color: selectedVehicle.color,
+          status: selectedVehicle.status,
+          transmission: selectedVehicle.transmission
+        });
+      } else {
+        this.carInformationFormGroup.patchValue({
+          licensePlate: '',
+          fuel: '',
+          carModel: '',
+          mileage: '',
+          color: '',
+          status: '',
+          transmission: ''
+        });
+      }
+    });
   }
+
+  toLocalISOStringNoMs(date: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
   updateActualCheckOut() {
     const date = this.CheckOutDateControl.value;
 
@@ -320,6 +406,8 @@ export class CheckOutComponent implements OnInit {
       country: [''],
       houseNr: [''],
       city: [''],
+      idType: [''],
+      idNumber: [''],
       licenseNumber: [''],
       licenseCountry: [''],
       licenseExpiry: [''],
@@ -335,12 +423,13 @@ export class CheckOutComponent implements OnInit {
       kmCount: [''],
       airportName: [''],
       feeDuration: [''],     // New field
-      maxPrice: new FormControl({ value: '', disabled: true }),        // New field
+      maxAmount: new FormControl({ value: '', disabled: true }),        // New field
     });
 
 
     feeGroup.get('feeType')?.valueChanges.subscribe((value: string) => {
-      if (value === 'Additional Drivers') {
+      const normalized = (value || '').replace(/\s+/g, '').toLowerCase();
+      if (normalized === 'additionaldriver') {
         if (this.additionalDriverForms.length < 3) {
           this.addAdditionalDriverForm();
         } else {
@@ -406,11 +495,11 @@ export class CheckOutComponent implements OnInit {
     this.additionalFees.removeAt(index);
   }
 
-  onFileSelected(event: any) {
+  onFileSelected(event: any, key: string) {
     const file: File = event.target.files[0];
     if (file) {
-      this.selectedFile = file;
-      console.log('Selected file:', file.name);
+      this.fileMap[key] = file;
+      // Optionally: trigger change detection or further logic
     }
   }
 
@@ -485,11 +574,8 @@ export class CheckOutComponent implements OnInit {
     checkInDateTime.setMinutes(+ciMin);
 
     // Build additionalFees array from pricingFormGroup
-    const additionalFees: AdditionalFee[] = this.additionalFees.controls.map(fee => ({
-      name: fee.get('feeType')?.value || '',
-      amount: fee.get('price')?.value || '',
-      amountMax: fee.get('maxPrice')?.value || ''
-    }));
+    // replace the placeholder with a call to the new helper:
+    const additionalFees: AdditionalFee[] = this.buildAdditionalFees();
 
     let discount: Discount | undefined = undefined;
     if (this.showDiscount) {
@@ -524,13 +610,71 @@ export class CheckOutComponent implements OnInit {
     });
   }
   save() {
-  // your save logic (e.g. form submission, API call, etc.)
-  this.snackBar.open('Saved successfully!', 'Close', {
-    duration: 3000,       // auto close after 3s
-    verticalPosition: 'top',
-    horizontalPosition: 'center'
-  });
-}
+    // your save logic (e.g. form submission, API call, etc.)
+    this.snackBar.open('Saved successfully!', 'Close', {
+      duration: 3000,       // auto close after 3s
+      verticalPosition: 'top',
+      horizontalPosition: 'center'
+    });
+  }
+
+  onFeeTypeChange(selectedName: string, index: number) {
+    const fee = this.getFeeByName(selectedName);
+    if (fee) {
+      const group = this.additionalFees.at(index);
+      group.patchValue({
+        price: fee.amountAtCheckout,
+        maxAmount: fee.maxAmount
+      });
+    }
+  }
+
+  // add this helper method to the class (e.g. near other utility methods)
+  buildAdditionalFees(): AdditionalFee[] {
+    return this.additionalFees.controls.map(fee => ({
+      name: fee.get('feeType')?.value || '',
+      amount: fee.get('price')?.value || '',
+      amountMax: fee.get('maxAmount')?.value || ''
+    })) as AdditionalFee[];
+  }
+
+  getFeeByName(name: string) {
+    console.log('Available fees:', this.fees);
+    return this.fees.find(fee => fee.feeName === name);
+  }
+
+  /**
+   * Formats a camelCase or PascalCase string by inserting spaces before uppercase letters.
+   * Example: "AdditionalDrivers" => "Additional Drivers"
+   */
+  formatFeeName(name: string): string {
+    if (!name) return '';
+    // Insert space before all caps except the first letter
+    return name.replace(/([a-z])([A-Z])/g, '$1 $2');
+  }
+
+  getExtrasTotal(): number {
+    try {
+      const additionalFees = this.buildAdditionalFees();
+      if (!additionalFees || additionalFees.length === 0) return 0;
+      return additionalFees.reduce((sum, fee) => {
+        const n = Number(fee.amount);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+    } catch (e) {
+      return 0;
+    }
+  }
 
 
+  fetchVehiclesByGroup(carGroup: string) {
+    this.vehicleService.getVehiclesByGroup(carGroup).subscribe(vehicles => {
+      this.vehicles = vehicles;
+      // Optionally reset mva if not in new list
+      const mvaControl = this.carInformationFormGroup.get('mva');
+      if (mvaControl && !vehicles.some(v => v.mva === mvaControl.value)) {
+        mvaControl.setValue('');
+      }
+    });
+  }
 }
